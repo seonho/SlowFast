@@ -158,7 +158,7 @@ def perform_test(test_loader, model, test_meter, cfg, writer=None):
                 "Successfully saved prediction results to {}".format(save_path)
             )
 
-    test_meter.finalize_metrics()
+    test_meter.finalize_metrics(ks=(1,))
     return test_meter
 
 
@@ -187,8 +187,8 @@ def test(cfg):
         cfg.TEST.NUM_ENSEMBLE_VIEWS = num_view
 
         # Print config.
-        logger.info("Test with config:")
-        logger.info(cfg)
+        # logger.info("Test with config:")
+        # logger.info(cfg)
 
         # Build the video model and print model statistics.
         model = build_model(cfg)
@@ -267,13 +267,13 @@ def test(cfg):
         )
 
         result_string = (
-            "_p{:.2f}_f{:.2f}_{}a{} Top5 Acc: {} MEM: {:.2f} f: {:.4f}"
+            "_p{:.2f}_f{:.2f}_{}a{} MEM: {:.2f} f: {:.4f}"
             "".format(
                 params / 1e6,
                 flops,
                 view,
                 test_meter.stats["top1_acc"],
-                test_meter.stats["top5_acc"],
+                # test_meter.stats["top5_acc"],
                 misc.gpu_mem_usage(),
                 flops,
             )

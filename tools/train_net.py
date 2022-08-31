@@ -27,6 +27,7 @@ from slowfast.models.contrastive import (
 from slowfast.utils.meters import AVAMeter, EpochTimer, TrainMeter, ValMeter
 from slowfast.utils.multigrid import MultigridSchedule
 
+
 logger = logging.get_logger(__name__)
 
 
@@ -202,7 +203,7 @@ def train_epoch(
                 )
 
         else:
-            top1_err, top5_err = None, None
+            top1_err = None
             if cfg.DATA.MULTI_LABEL:
                 # Gather all the predictions across all the devices.
                 if cfg.NUM_GPUS > 1:
@@ -217,38 +218,36 @@ def train_epoch(
                     loss, grad_norm = du.all_reduce([loss, grad_norm])
                     if loss_extra:
                         loss_extra = du.all_reduce(loss_extra)
-                loss, grad_norm, top1_err, top5_err = (
+                loss, grad_norm, top1_err = (
                     loss.item(),
                     grad_norm.item(),
-                    0.0,
                     0.0,
                 )
                 if loss_extra:
                     loss_extra = [one_loss.item() for one_loss in loss_extra]
             else:
                 # Compute the errors.
-                num_topks_correct = metrics.topks_correct(preds, labels, (1, 5))
-                top1_err, top5_err = [
+                num_topks_correct = metrics.topks_correct(preds, labels, (1,))
+                top1_err, = [
                     (1.0 - x / preds.size(0)) * 100.0 for x in num_topks_correct
                 ]
                 # Gather all the predictions across all the devices.
                 if cfg.NUM_GPUS > 1:
-                    loss, grad_norm, top1_err, top5_err = du.all_reduce(
-                        [loss.detach(), grad_norm, top1_err, top5_err]
+                    loss, grad_norm, top1_err = du.all_reduce(
+                        [loss.detach(), grad_norm, top1_err]
                     )
 
                 # Copy the stats from GPU to CPU (sync point).
-                loss, grad_norm, top1_err, top5_err = (
+                loss, grad_norm, top1_err = (
                     loss.item(),
                     grad_norm.item(),
                     top1_err.item(),
-                    top5_err.item(),
                 )
 
             # Update and log stats.
             train_meter.update_stats(
                 top1_err,
-                top5_err,
+                0,
                 loss,
                 lr,
                 grad_norm,
@@ -265,7 +264,6 @@ def train_epoch(
                         "Train/loss": loss,
                         "Train/lr": lr,
                         "Train/Top1_err": top1_err,
-                        "Train/Top5_err": top5_err,
                     },
                     global_step=data_size * cur_epoch + cur_iter,
                 )
@@ -382,23 +380,23 @@ def eval_epoch(
                 if cfg.DATA.IN22k_VAL_IN1K != "":
                     preds = preds[:, :1000]
                 # Compute the errors.
-                num_topks_correct = metrics.topks_correct(preds, labels, (1, 5))
+                num_topks_correct = metrics.topks_correct(preds, labels, (1,))
 
                 # Combine the errors across the GPUs.
-                top1_err, top5_err = [
+                top1_err, = [
                     (1.0 - x / preds.size(0)) * 100.0 for x in num_topks_correct
                 ]
                 if cfg.NUM_GPUS > 1:
-                    top1_err, top5_err = du.all_reduce([top1_err, top5_err])
+                    top1_err = du.all_reduce([top1_err])[0]
 
                 # Copy the errors from GPU to CPU (sync point).
-                top1_err, top5_err = top1_err.item(), top5_err.item()
+                top1_err = top1_err.item()
 
                 val_meter.iter_toc()
                 # Update and log stats.
                 val_meter.update_stats(
                     top1_err,
-                    top5_err,
+                    0,
                     batch_size
                     * max(
                         cfg.NUM_GPUS, 1
@@ -407,7 +405,7 @@ def eval_epoch(
                 # write to tensorboard format if available.
                 if writer is not None:
                     writer.add_scalars(
-                        {"Val/Top1_err": top1_err, "Val/Top5_err": top5_err},
+                        {"Val/Top1_err": top1_err},
                         global_step=len(val_loader) * cur_epoch + cur_iter,
                     )
 
@@ -759,7 +757,7 @@ def train(cfg):
     if writer is not None:
         writer.close()
     result_string = (
-        "_p{:.2f}_f{:.2f} _t{:.2f}_m{:.2f} _a{:.2f} Top5 Acc: {:.2f} MEM: {:.2f} f: {:.4f}"
+        "_p{:.2f}_f{:.2f} _t{:.2f}_m{:.2f} _a{:.2f} MEM: {:.2f} f: {:.4f}"
         "".format(
             params / 1e6,
             flops,
@@ -768,7 +766,6 @@ def train(cfg):
             else 0.0,
             misc.gpu_mem_usage(),
             100 - val_meter.min_top1_err,
-            100 - val_meter.min_top5_err,
             misc.gpu_mem_usage(),
             flops,
         )
