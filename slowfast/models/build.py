@@ -5,9 +5,6 @@
 
 import torch
 from fvcore.common.registry import Registry
-from torch.distributed.algorithms.ddp_comm_hooks import (
-    default as comm_hooks_default,
-)
 
 import slowfast.utils.logging as logging
 
@@ -77,8 +74,4 @@ def build_model(cfg, gpu_id=None):
             or cfg.MODEL.MODEL_NAME == "ContrastiveModel"
             else False,
         )
-        if cfg.MODEL.FP16_ALLREDUCE:
-            model.register_comm_hook(
-                state=None, hook=comm_hooks_default.fp16_compress_hook
-            )
     return model
